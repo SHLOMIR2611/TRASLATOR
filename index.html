@@ -76,6 +76,7 @@
   #transcript p { margin: 0 0 10px; padding-bottom: 10px; border-bottom: 1px dashed var(--line); font-size: 15px; line-height: 1.5; }
   #transcript p:last-child { border-bottom: 0; }
   #transcript time { display: block; font-size: 11px; color: var(--ink-dim); margin-bottom: 2px; }
+  #transcript b { font-size: 12px; float: left; }
   #transcript .none { color: var(--ink-dim); font-size: 14px; padding: 16px 0; }
   @media (max-width: 900px) {
     .body { flex-direction: column; }
@@ -89,11 +90,31 @@
     padding: 16px 24px calc(16px + env(safe-area-inset-bottom)); direction: rtl; text-align: right; box-shadow: 0 -2px 12px rgba(20,18,15,.06);
   }
   footer h2 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--accent); }
-  footer .current { font-size: 34px; min-height: 1.4em; }
+  footer .current { font-size: calc(var(--txt) * 1.1); min-height: 1.4em; }
   section { background: var(--panel); padding: 24px; display: flex; flex-direction: column; min-height: 40vh; }
   section h2 { margin: 0 0 16px; font-size: 13px; font-weight: 600; color: var(--ink-dim);
-               border-bottom: 1px solid var(--line); padding-bottom: 6px; }
-  .current { font-size: 30px; line-height: 1.4; font-weight: 500; min-height: 3em; }
+               border-bottom: 1px solid var(--line); padding-bottom: 6px; cursor: pointer; user-select: none;
+               display: flex; align-items: center; gap: 8px; }
+  section h2 .mic { font-size: 11px; color: var(--ink-dim); opacity: .6; margin-inline-start: auto; }
+  section h2:hover { color: var(--teal); }
+  /* the panel whose language is currently being spoken */
+  .speaking { box-shadow: inset 0 0 0 3px var(--teal); animation: glow 1.4s ease-in-out infinite; }
+  .speaking h2 { color: var(--teal); }
+  .speaking h2 .mic, footer.speaking h2 .mic { opacity: 1; color: var(--teal); font-weight: 700; }
+  @keyframes glow { 50% { box-shadow: inset 0 0 0 3px var(--teal-bg); } }
+  @media (prefers-reduced-motion: reduce) { .speaking { animation: none; } }
+  footer { cursor: pointer; }
+  footer h2 { display: flex; align-items: center; gap: 8px; }
+  footer h2 .mic { font-size: 11px; opacity: .6; margin-inline-start: auto; }
+  footer.speaking { box-shadow: inset 0 0 0 3px var(--teal); animation: glow 1.4s ease-in-out infinite; }
+  footer.speaking h2 { color: var(--teal); }
+  :root { --txt: 30px; }
+  .current { font-size: var(--txt); line-height: 1.4; font-weight: 500; min-height: 3em; }
+  .history { font-size: calc(var(--txt) * 0.55) !important; }
+  .zoom { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: #fff; }
+  .zoom button { background: transparent; color: var(--ink); border: 0; border-radius: 0; padding: 6px 12px; font-size: 16px; font-weight: 700; line-height: 1; }
+  .zoom button:hover { background: var(--teal-bg); color: var(--teal); }
+  .zoom span { padding: 8px 6px; font-size: 12px; color: var(--ink-dim); border-inline: 1px solid var(--line); min-width: 44px; text-align: center; }
   .interim { color: var(--ink-dim); font-weight: 400; }
   .current { font-weight: 600; }
   .history { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--ink-dim);
@@ -115,6 +136,11 @@
     <option value="claude">מנוע: Claude (דורש מפתח API)</option>
   </select>
   <input id="apikey" type="password" placeholder="מפתח Anthropic API" style="display:none">
+  <div class="zoom" title="גודל הטקסט">
+    <button id="zoomOut" aria-label="הקטן טקסט">−</button>
+    <span id="zoomVal">100%</span>
+    <button id="zoomIn" aria-label="הגדל טקסט">+</button>
+  </div>
   <button id="clear" class="ghost">נקה</button>
   <button id="toggle">התחל להקשיב</button>
   <img class="logo" src="data:image/jpeg;base64,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" alt="לוגו">
@@ -132,20 +158,23 @@
   </aside>
   <main id="main"></main>
 </div>
-<footer>
-  <h2>עברית — מה שנאמר</h2>
+<footer id="panel-he" title="לחץ כדי להקשיב בעברית">
+  <h2>עברית <span class="mic">🎤 לחץ להאזנה בעברית</span></h2>
   <div class="current" id="cur-he"></div>
 </footer>
 
 <script>
 const $ = id => document.getElementById(id);
 const LANGS = [
-  { code: 'en', name: 'English', label: 'אנגלית', dir: 'ltr' },
-  { code: 'ru', name: 'Русский', label: 'רוסית',  dir: 'ltr' },
-  { code: 'ar', name: 'العربية', label: 'ערבית',  dir: 'rtl' },
-  { code: 'hi', name: 'हिन्दी',  label: 'הינדית', dir: 'ltr' },
-  { code: 'zh-CN', name: '中文', label: 'סינית', dir: 'ltr' },
+  { code: 'en', name: 'English', label: 'אנגלית', dir: 'ltr', speech: 'en-US', google: 'en', full: 'English' },
+  { code: 'ru', name: 'Русский', label: 'רוסית',  dir: 'ltr', speech: 'ru-RU', google: 'ru', full: 'Russian' },
+  { code: 'ar', name: 'العربية', label: 'ערבית',  dir: 'rtl', speech: 'ar-SA', google: 'ar', full: 'Arabic' },
+  { code: 'hi', name: 'हिन्दी',  label: 'הינדית', dir: 'ltr', speech: 'hi-IN', google: 'hi', full: 'Hindi' },
+  { code: 'zh-CN', name: '中文', label: 'סינית', dir: 'ltr', speech: 'zh-CN', google: 'zh-CN', full: 'Simplified Chinese' },
 ];
+const HE = { code: 'he', name: 'עברית', label: 'עברית', dir: 'rtl', speech: 'he-IL', google: 'iw', full: 'Hebrew' };
+const langOf = code => code === 'he' ? HE : LANGS.find(l => l.code === code);
+let inputLang = 'he';   // language currently being spoken into the microphone
 let selected = JSON.parse(localStorage.getItem('langs') || '["en","ru"]');
 
 // ---- language picker ----
@@ -164,7 +193,8 @@ LANGS.forEach(l => {
 
 // ---- panels ----
 function panel(code, title, dir) {
-  return `<section class="${dir}"><h2>${title}</h2>
+  return `<section class="${dir}" id="panel-${code}" data-code="${code}" title="לחץ כדי להקשיב בשפה זו">
+    <h2>${title}<span class="mic">🎤</span></h2>
     <div class="current" id="cur-${code}"></div>
     <div class="history" id="hist-${code}"></div></section>`;
 }
@@ -173,12 +203,28 @@ function buildPanels() {
   $('main').style.setProperty('--cols', Math.max(1, active.length));
   $('main').innerHTML = active.map(l => panel(l.code, l.name, l.dir)).join('')
     + (active.length ? '' : '<div class="empty">בחר לפחות שפת תרגום אחת למעלה.</div>');
+  $('main').querySelectorAll('section h2').forEach(h => h.onclick = () => setInputLang(h.parentElement.dataset.code));
+  if (!selected.includes(inputLang) && inputLang !== 'he') inputLang = 'he';
+  markSpeaking();
+}
+function markSpeaking() {
+  document.querySelectorAll('.speaking').forEach(el => el.classList.remove('speaking'));
+  const el = $('panel-' + inputLang); if (el) el.classList.add('speaking');
+}
+function setInputLang(code) {
+  if (code === inputLang) return;
+  inputLang = code;
+  markSpeaking();
+  const l = langOf(code);
+  $('status').textContent = listening ? 'מקשיב… דבר ב' + l.label + '.' : 'שפת הדיבור: ' + l.label + '. לחץ "התחל להקשיב".';
+  if (listening && rec) { try { rec.abort(); } catch (e) {} }   // onend restarts with the new language
 }
 buildPanels();
+$('panel-he').onclick = () => setInputLang('he');
 
 // ---- translation engines ----
-async function translateGoogle(text, to) {
-  const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=iw&tl=' + to + '&dt=t&q=' + encodeURIComponent(text);
+async function translateGoogle(text, to, from) {
+  const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=' + langOf(from).google + '&tl=' + langOf(to).google + '&dt=t&q=' + encodeURIComponent(text);
   const res = await fetch(url);
   if (!res.ok) throw new Error('Google ' + res.status);
   const data = await res.json();
@@ -186,8 +232,8 @@ async function translateGoogle(text, to) {
 }
 
 // Backup engine (free, no key) used automatically when Google is blocked or fails.
-async function translateMyMemory(text, to) {
-  const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) + '&langpair=he|' + to;
+async function translateMyMemory(text, to, from) {
+  const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) + '&langpair=' + from + '|' + to;
   const res = await fetch(url);
   if (!res.ok) throw new Error('MyMemory ' + res.status);
   const data = await res.json();
@@ -195,19 +241,19 @@ async function translateMyMemory(text, to) {
   return data.responseData.translatedText;
 }
 
-async function translateFree(text, to) {
-  try { return await translateGoogle(text, to); }
+async function translateFree(text, to, from) {
+  try { return await translateGoogle(text, to, from); }
   catch (e1) {
     console.warn('Google failed, trying backup:', e1.message);
-    try { return await translateMyMemory(text, to); }
+    try { return await translateMyMemory(text, to, from); }
     catch (e2) { throw new Error(e1.message + ' / ' + e2.message); }
   }
 }
 
-async function translateClaude(text, codes) {
+async function translateClaude(text, codes, from) {
   const key = $('apikey').value.trim();
   if (!key) throw new Error('חסר מפתח API');
-  const names = { en: 'English', ru: 'Russian', ar: 'Arabic', hi: 'Hindi', 'zh-CN': 'Simplified Chinese' };
+  const names = { he: 'Hebrew', en: 'English', ru: 'Russian', ar: 'Arabic', hi: 'Hindi', 'zh-CN': 'Simplified Chinese' };
   const shape = '{' + codes.map(c => `"${c}":"..."`).join(',') + '}';
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -217,7 +263,7 @@ async function translateClaude(text, codes) {
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-6", max_tokens: 1500,
-      system: `You are a live interpreter. Translate the Hebrew text into natural ${codes.map(c => names[c]).join(', ')}. Respond ONLY with JSON of the form ${shape} — no preamble, no markdown fences.`,
+      system: `You are a live interpreter. Translate the ${names[from]} text into natural ${codes.map(c => names[c]).join(', ')}. Respond ONLY with JSON of the form ${shape} — no preamble, no markdown fences.`,
       messages: [{ role: "user", content: text }]
     })
   });
@@ -227,11 +273,16 @@ async function translateClaude(text, codes) {
   return JSON.parse(raw);
 }
 
-async function translate(text, codes) {
-  if ($('engine').value === 'claude') return translateClaude(text, codes);
+async function translate(text, codes, from) {
+  if ($('engine').value === 'claude') return translateClaude(text, codes, from);
   const out = {};
-  await Promise.all(codes.map(async c => { out[c] = await translateFree(text, c); }));
+  await Promise.all(codes.map(async c => { out[c] = await translateFree(text, c, from); }));
   return out;
+}
+// everything except the language being spoken: Hebrew + the selected languages
+function targetsFor(from) {
+  const t = from === 'he' ? [] : ['he'];
+  return t.concat(selected.filter(c => c !== from));
 }
 
 // ---- live preview while still speaking (Google only, fast) ----
@@ -239,10 +290,10 @@ let previewTimer = null, previewSeq = 0, finalSeq = 0;
 function previewTranslate(text) {
   clearTimeout(previewTimer);
   previewTimer = setTimeout(async () => {
-    const seq = ++previewSeq, codes = [...selected];
+    const from = inputLang, seq = ++previewSeq, codes = targetsFor(from);
     try {
       const out = {};
-      await Promise.all(codes.map(async c => { out[c] = await translateFree(text, c); }));
+      await Promise.all(codes.map(async c => { out[c] = await translateFree(text, c, from); }));
       if (seq !== previewSeq || finalSeq > 0 && seq < finalSeq) return;   // stale
       codes.forEach(c => { const el = $('cur-' + c); if (el) el.innerHTML = `<span class="interim">${out[c]}</span>`; });
     } catch (e) {}
@@ -257,6 +308,7 @@ function addToTranscript(entry) {
   const none = box.querySelector('.none'); if (none) none.remove();
   const p = document.createElement('p');
   const t = document.createElement('time'); t.textContent = entry.time.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  if (entry.lang !== 'he') { const tag = document.createElement('b'); tag.textContent = '[' + langOf(entry.lang).label + '] '; tag.style.color = 'var(--teal)'; p.appendChild(tag); }
   p.appendChild(t); p.appendChild(document.createTextNode(entry.he));
   box.appendChild(p);
   box.scrollTop = box.scrollHeight;
@@ -276,7 +328,7 @@ function exportWord() {
   let rows = '';
   transcript.forEach((e, i) => {
     const time = e.time.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    rows += `<tr><td class="n">${i + 1}</td><td class="n">${time}</td><td class="he">${esc(e.he)}</td>`
+    rows += `<tr><td class="n">${i + 1}</td><td class="n">${time}</td><td class="n">${esc(langOf(e.lang || 'he').label)}</td><td class="he">${esc(e.he)}</td>`
           + langs.map(l => `<td class="${l.dir}">${esc((e.tr && e.tr[l.code]) || '')}</td>`).join('') + '</tr>';
   });
   const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
@@ -297,7 +349,7 @@ function exportWord() {
 </style></head><body>
 <h1>${esc(title)}</h1>
 <p class="meta">נוצר ב‑${d.toLocaleString('he-IL')} · ${transcript.length} משפטים</p>
-<table dir="rtl"><thead><tr><th>#</th><th>שעה</th><th>עברית</th>${langs.map(l => `<th>${esc(l.name)}</th>`).join('')}</tr></thead>
+<table dir="rtl"><thead><tr><th>#</th><th>שעה</th><th>שפת הדיבור</th><th>עברית</th>${langs.map(l => `<th>${esc(l.name)}</th>`).join('')}</tr></thead>
 <tbody>${rows}</tbody></table>
 </body></html>`;
   const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' });
@@ -326,16 +378,19 @@ function pushHistory(code, text) {
 
 async function handleFinal(text) {
   text = text.trim(); if (!text) return;
-  const codes = [...selected];
+  const from = inputLang, codes = targetsFor(from);
   clearTimeout(previewTimer); finalSeq = ++previewSeq;
-  $('cur-he').textContent = text;
-  const entry = { time: new Date(), he: text, tr: {} };
-  addToTranscript(entry);
+  const src = $('cur-' + from); if (src) src.textContent = text;
+  if (from !== 'he') pushHistory(from, text);
+  const entry = { time: new Date(), lang: from, he: from === 'he' ? text : '…', tr: { [from]: text } };
   try {
-    const t = await translate(text, codes);
-    entry.tr = t;
+    const t = await translate(text, codes, from);
+    Object.assign(entry.tr, t);
+    if (from !== 'he') entry.he = t.he || '';
+    addToTranscript(entry);
     codes.forEach(c => { const el = $('cur-' + c); if (el) el.textContent = t[c] || ''; pushHistory(c, t[c] || ''); });
   } catch (e) {
+    addToTranscript(entry);
     codes.forEach(c => { const el = $('cur-' + c); if (el) el.textContent = 'שגיאת תרגום: ' + e.message; });
     $('status').textContent = 'שגיאת תרגום: ' + e.message + ' — בדוק חיבור לאינטרנט';
     console.error(e);
@@ -361,25 +416,34 @@ async function start() {
   }
   keepAwake();
   rec = new SR();
-  rec.lang = 'he-IL'; rec.continuous = true; rec.interimResults = true;
+  rec.continuous = true; rec.interimResults = true;
   rec.onresult = ev => {
     let interim = '';
     for (let i = ev.resultIndex; i < ev.results.length; i++) {
       const r = ev.results[i];
       if (r.isFinal) handleFinal(r[0].transcript); else interim += r[0].transcript;
     }
-    if (interim) { $('cur-he').innerHTML = `<span class="interim">${interim}</span>`; previewTranslate(interim); }
+    if (interim) {
+      const src = $('cur-' + inputLang);
+      if (src) src.innerHTML = `<span class="interim">${esc(interim)}</span>`;
+      previewTranslate(interim);
+    }
   };
   rec.onerror = ev => {
     if (ev.error === 'no-speech' || ev.error === 'aborted') return;   // harmless on Safari
     $('status').textContent = 'שגיאה: ' + ev.error;
   };
   // Safari on iPad stops after every sentence — restart with a short delay (immediate restart throws).
-  rec.onend = () => { if (listening) setTimeout(() => { try { rec.start(); } catch (e) {} }, IS_IOS ? 150 : 0); };
-  rec.start();
+  rec.onend = () => { if (listening) setTimeout(startRec, IS_IOS ? 150 : 0); };
   listening = true;
+  startRec();
   $('toggle').textContent = 'עצור'; $('toggle').classList.add('listening');
-  $('status').textContent = 'מקשיב… דבר בעברית.';
+  $('status').textContent = 'מקשיב… דבר ב' + langOf(inputLang).label + '.';
+}
+function startRec() {
+  if (!rec) return;
+  rec.lang = langOf(inputLang).speech;   // picked up on every (re)start, so tapping a panel switches language
+  try { rec.start(); } catch (e) {}
 }
 function stop() {
   listening = false; rec && rec.stop();
@@ -394,6 +458,18 @@ $('clear').onclick = () => {
   document.querySelectorAll('.current, .history').forEach(el => el.textContent = '');
   clearTranscript();
 };
+
+// ---- text size ----
+let zoom = parseInt(localStorage.getItem('zoom') || '100', 10);
+function applyZoom() {
+  zoom = Math.min(250, Math.max(50, zoom));
+  document.documentElement.style.setProperty('--txt', (30 * zoom / 100) + 'px');
+  $('zoomVal').textContent = zoom + '%';
+  localStorage.setItem('zoom', zoom);
+}
+$('zoomIn').onclick = () => { zoom += 10; applyZoom(); };
+$('zoomOut').onclick = () => { zoom -= 10; applyZoom(); };
+applyZoom();
 
 // ---- settings ----
 $('engine').value = localStorage.getItem('engine') || 'google';
