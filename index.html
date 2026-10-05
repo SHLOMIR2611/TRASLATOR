@@ -171,6 +171,7 @@ const LANGS = [
   { code: 'ar', name: 'العربية', label: 'ערבית',  dir: 'rtl', speech: 'ar-SA', google: 'ar', full: 'Arabic' },
   { code: 'hi', name: 'हिन्दी',  label: 'הינדית', dir: 'ltr', speech: 'hi-IN', google: 'hi', full: 'Hindi' },
   { code: 'zh-CN', name: '中文', label: 'סינית', dir: 'ltr', speech: 'zh-CN', google: 'zh-CN', full: 'Simplified Chinese' },
+  { code: 'th', name: 'ไทย', label: 'תאילנדית', dir: 'ltr', speech: 'th-TH', google: 'th', full: 'Thai' },
 ];
 const HE = { code: 'he', name: 'עברית', label: 'עברית', dir: 'rtl', speech: 'he-IL', google: 'iw', full: 'Hebrew' };
 const langOf = code => code === 'he' ? HE : LANGS.find(l => l.code === code);
@@ -253,7 +254,7 @@ async function translateFree(text, to, from) {
 async function translateClaude(text, codes, from) {
   const key = $('apikey').value.trim();
   if (!key) throw new Error('חסר מפתח API');
-  const names = { he: 'Hebrew', en: 'English', ru: 'Russian', ar: 'Arabic', hi: 'Hindi', 'zh-CN': 'Simplified Chinese' };
+  const names = { he: 'Hebrew', en: 'English', ru: 'Russian', ar: 'Arabic', hi: 'Hindi', 'zh-CN': 'Simplified Chinese', th: 'Thai' };
   const shape = '{' + codes.map(c => `"${c}":"..."`).join(',') + '}';
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
