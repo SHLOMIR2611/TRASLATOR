@@ -274,13 +274,27 @@ function micMuted(){ return synthSpeaking || Date.now()<muteUntil; }
 // Mic open: the browser voice for that language, so listening continues; if the device has no voice
 // for that language, pause the mic and use Claude's voice instead (tap the mic to continue).
 let synthWatch=null;
-function releaseSynth(){ clearTimeout(synthWatch); synthSpeaking=false; muteUntil=Date.now()+1200; setMicUI(); }
+function releaseSynth(){ clearTimeout(synthWatch); synthSpeaking=false; muteUntil=Date.now()+2500; dropHeard(); if(dict&&dict.resume) setTimeout(()=>dict.resume(),600); setMicUI(); }
+// ---- echo guard: never treat the page's own read-aloud as a new speaker ----
+const spokenRecent=[];
+const norm=t=>(t||"").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu," ").replace(/\s+/g," ").trim();
+function rememberSpoken(text){ spokenRecent.push({w:norm(text).split(" ").filter(Boolean),t:Date.now()}); while(spokenRecent.length>6) spokenRecent.shift(); }
+function isEcho(text){
+  const w=norm(text).split(" ").filter(Boolean); if(!w.length) return false;
+  const now=Date.now();
+  return spokenRecent.some(r=>{
+    if(now-r.t>30000) return false;
+    const set=new Set(r.w); const hit=w.filter(x=>set.has(x)).length;
+    return hit/w.length>=0.5;
+  });
+}
+function dropHeard(){ buf=""; clearTimeout(flushTimer); for(const s of ["A","B"]) panels[s].partial.textContent=""; }
 function showSpeaking(){ for(const s of ["A","B"]) panels[s].status.textContent=(ui(state[s].lang).speaking||UI.en.speaking); }
 function speakSynth(text,lang,v){
   if(!synth) return false;
   try{ synth.cancel(); }catch(e){}
   const parts=(text.match(/[^.!?。！？؟\n]+[.!?。！？؟]*\s*/g)||[text]).map(x=>x.trim()).filter(Boolean);
-  synthSpeaking=true; showSpeaking();
+  synthSpeaking=true; showSpeaking(); dropHeard(); if(dict&&dict.pause) dict.pause();
   clearTimeout(synthWatch);
   synthWatch=setTimeout(releaseSynth, 4000 + text.length*120);
   parts.forEach((part,i)=>{
@@ -307,6 +321,7 @@ function resumeListening(){
 }
 function speakText(text,lang){
   if(!speakOut||!text) return;
+  rememberSpoken(text);
   const v = synth ? pickVoice(lang) : null;
   if(listeningSide){
     if(v && !claudeVoice){ speakSynth(text,lang,v); return; }
@@ -338,7 +353,7 @@ function queueSpeech(text){
 function flushSpeech(){
   clearTimeout(flushTimer);
   const t=buf.trim(); buf="";
-  if(!t) return;
+  if(!t || isEcho(t)) return;
   if(mode==="one") handleUtterance(oneSrc,t); else routeAndTranslate(t);
 }
 let chain=Promise.resolve();
@@ -349,12 +364,14 @@ function routeAndTranslate(text){
     const pa=addMsg("A","in pending",ui(la).tr), pb=addMsg("B","in pending",ui(lb).tr);
     const prompt=`You are a live interpreter between a tour guide and a visitor. Two languages are in use: A = ${ENGLISH[la]}, B = ${ENGLISH[lb]}.
 Below is a phrase captured by speech-to-text from a shared microphone. The speaker always uses one of these two languages only. Decide whether it was spoken in A or in B. The recognizer may be tuned to one language, so speech in the other language can come out as phonetic gibberish or be transliterated into the wrong script (for example English words written in Hebrew letters, or Hebrew written in Latin letters); in that case read it by sound, decide the real language, and reconstruct what was actually said. Clean obvious recognition slips and punctuation, then translate it into the other language. Keep meaning and tone; write place names as commonly written in the target language. Write it the way a skilled human interpreter would say it out loud: natural, conversational, idiomatic, short clear sentences, not word-for-word. Spell out numbers and abbreviations the way they are spoken.
+The device also reads its own translations aloud, and the microphone may pick that up. These were read aloud just now: ${JSON.stringify(spokenRecent.map(r=>r.w.join(" ")))}. If the phrase is only the device's own reading of one of them (even partly or garbled), reply {"source":"echo"} and nothing else.
 Reply with JSON only: {"source":"A" or "B","original":"<cleaned phrase in the source language>","translation":"<translation in the other language>"}
 
 Phrase:
 ${text}`;
     try{
       const r= STANDALONE ? await gRoute(text,la,lb) : await sample.json(prompt,{modelTier:"quick",cache:false});
+      if(r&&r.source==="echo"){ pa.el.remove(); pb.el.remove(); return; }
       const src=r&&r.source==="B"?"B":"A", dst=other(src);
       const ownBubble = src==="A"?pa:pb, inBubble = src==="A"?pb:pa;
       ownBubble.el.className="msg own"; ownBubble.set((r.original||text).trim());
@@ -396,7 +413,7 @@ async function gRoute(text,la,lb){
 function makeWebDictation(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR) return null;
-  let rec=null, active=false, cur="idle", lang="he";
+  let rec=null, active=false, paused=false, cur="idle", lang="he";
   const hs={state:[],partial:[],final:[]};
   const emit=(k,e)=>hs[k].forEach(f=>{ try{f(e)}catch(x){} });
   const setState=(st,reason)=>{ cur=st; emit("state",reason?{state:st,reason}:{state:st}); };
@@ -406,12 +423,13 @@ function makeWebDictation(){
       let interim="";
       for(let i=ev.resultIndex;i<ev.results.length;i++){
         const r=ev.results[i];
+        if(paused) return;
         if(r.isFinal) emit("final",{text:" "+r[0].transcript.trim()}); else interim+=r[0].transcript;
       }
       emit("partial",{text:interim});
     };
     rec.onerror=ev=>{ if(ev.error==="not-allowed"||ev.error==="service-not-allowed"){ active=false; setState("idle","not_granted"); } };
-    rec.onend=()=>{ if(active) setTimeout(()=>{ try{ begin(); }catch(e){} },150); else setState("idle","stopped"); };
+    rec.onend=()=>{ if(paused) return; if(active) setTimeout(()=>{ try{ begin(); }catch(e){} },150); else setState("idle","stopped"); };
     try{ rec.start(); }catch(e){}
   }
   return {
@@ -421,7 +439,9 @@ function makeWebDictation(){
       active=true; setState("starting"); begin(); setState("listening");
       return Promise.resolve();
     },
-    stop(){ active=false; if(rec){ try{ rec.stop(); }catch(e){} } else setState("idle","stopped"); return Promise.resolve(); },
+    stop(){ active=false; paused=false; if(rec){ try{ rec.stop(); }catch(e){} } else setState("idle","stopped"); return Promise.resolve(); },
+    pause(){ if(!active||paused) return; paused=true; if(rec){ try{ rec.abort(); }catch(e){} } },
+    resume(){ if(!active||!paused) return; paused=false; try{ begin(); }catch(e){} },
     active(){ return cur!=="idle"; },
     onState(f){ hs.state.push(f); return ()=>{}; },
     onPartial(f){ hs.partial.push(f); return ()=>{}; },
