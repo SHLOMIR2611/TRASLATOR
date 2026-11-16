@@ -405,7 +405,7 @@ function pushHistory(code, text) {
 
 // ---- narration (read a translation aloud) ----
 const synth = window.speechSynthesis || null;
-let voices = [], narrating = false, narrateWatch = null;
+let voices = [], narrating = false, narrateWatch = null, narrateStart = 0, liveUtterances = [];
 function loadVoices() { try { voices = synth ? synth.getVoices() : []; } catch (e) { voices = []; } }
 if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
 function voiceScore(v) { const n = v.name || ''; let s = 0;
@@ -425,6 +425,7 @@ function narrate(text, code) {
   // Pause listening so the microphone does not translate the narration.
   narrating = true; setSayState(code, true);
   if (listening && rec) { try { rec.abort(); } catch (e) {} }
+  narrateStart = Date.now(); liveUtterances = [];
   const parts = (text.match(/[^.!?。！？؟\n]+[.!?。！？؟]*\s*/g) || [text]).map(t => t.trim()).filter(Boolean);
   clearTimeout(narrateWatch); narrateWatch = setTimeout(finishNarration, 4000 + text.length * 120);
   parts.forEach((part, i) => {
@@ -432,6 +433,7 @@ function narrate(text, code) {
     u.lang = langOf(code).speech; if (v) u.voice = v; u.rate = 1.03;
     if (i === parts.length - 1) u.onend = finishNarration;
     u.onerror = finishNarration;
+    liveUtterances.push(u);
     synth.speak(u);
   });
 }
@@ -544,18 +546,30 @@ async function start() {
     $('status').textContent = 'שגיאה: ' + ev.error;
   };
   // Safari on iPad stops after every sentence — restart with a short delay (immediate restart throws).
-  rec.onend = () => { if (listening && !narrating) setTimeout(startRec, IS_IOS ? 150 : 0); };
+  rec.onstart = () => { recRunning = true; recStarting = false; };
+  rec.onend = () => { recRunning = false; recStarting = false; if (listening && !narrating) setTimeout(startRec, IS_IOS ? 150 : 0); };
+  // Safety net: if the browser ever drops the microphone without restarting, start it again.
+  clearInterval(recGuard);
+  recGuard = setInterval(() => {
+    if (listening && !narrating && !recRunning && !recStarting) startRec();
+    if (narrating && synth && !synth.speaking && !synth.pending && Date.now() - narrateStart > 600) finishNarration();
+  }, 300);
   listening = true;
   startRec();
   $('toggle').textContent = 'עצור'; $('toggle').classList.add('listening');
   $('status').textContent = 'מקשיב… דבר ב' + langOf(inputLang).label + '.';
 }
+let recRunning = false, recStarting = false, recGuard = null;
 function startRec() {
-  if (!rec || narrating) return;
+  if (!rec || narrating || !listening || recRunning) return;
   rec.lang = langOf(inputLang).speech;   // picked up on every (re)start, so tapping a panel switches language
-  try { rec.start(); } catch (e) {}
+  recStarting = true;
+  try { rec.start(); }
+  catch (e) { recStarting = false; setTimeout(startRec, 300); }   // still shutting down: try again shortly
+  setTimeout(() => { recStarting = false; }, 2000);
 }
 function stop() {
+  clearInterval(recGuard);
   listening = false; rec && rec.stop();
   if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
   if (wakeLock) { wakeLock.release(); wakeLock = null; }
