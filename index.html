@@ -85,6 +85,10 @@
     aside.collapsed { width: auto; max-height: none; }
     aside.collapsed #tbtn { writing-mode: horizontal-tb; }
   }
+  #tapResume { position: fixed; inset: auto 16px calc(110px + env(safe-area-inset-bottom)) 16px; z-index: 50;
+               font-size: 22px; font-weight: 700; padding: 22px; border-radius: 18px; border: 0;
+               background: var(--teal); color: #fff; box-shadow: 0 8px 30px rgba(0,0,0,.25); cursor: pointer; }
+  #tapResume[hidden] { display: none; }
   footer {
     position: sticky; bottom: 0; background: var(--accent-bg); border-top: 3px solid var(--accent);
     padding: 16px 24px calc(16px + env(safe-area-inset-bottom)); direction: rtl; text-align: right; box-shadow: 0 -2px 12px rgba(20,18,15,.06);
@@ -170,6 +174,7 @@
   </aside>
   <main id="main"></main>
 </div>
+<button id="tapResume" hidden>🎤 גע כאן כדי להמשיך להקשיב</button>
 <footer id="panel-he" title="לחץ כדי להקשיב בעברית">
   <h2>עברית <span class="mic">🎤 לחץ להאזנה בעברית</span></h2>
   <div class="current" id="cur-he"></div>
@@ -425,9 +430,25 @@ function narrate(text, code) {
   // Pause listening so the microphone does not translate the narration.
   narrating = true; setSayState(code, true);
   if (listening && rec) { try { rec.abort(); } catch (e) {} }
-  narrateStart = Date.now(); liveUtterances = [];
+  liveUtterances = [];
   const parts = (text.match(/[^.!?。！？؟\n]+[.!?。！？؟]*\s*/g) || [text]).map(t => t.trim()).filter(Boolean);
-  clearTimeout(narrateWatch); narrateWatch = setTimeout(finishNarration, 4000 + text.length * 120);
+  narrateStart = Date.now() + 5000;   // the safety net waits until speech has really started
+  clearTimeout(narrateWatch); narrateWatch = setTimeout(finishNarration, 6000 + text.length * 120);
+  const speakNow = () => {
+    if (!narrating) return;
+    narrateStart = Date.now();
+    speakParts(parts, code, v);
+  };
+  if (IS_IOS) {
+    // On iPad/iPhone the microphone and the speaker share one audio session: speak only after the mic has closed.
+    const t0 = Date.now();
+    (function waitMic() {
+      if ((!recRunning && !recStarting) || Date.now() - t0 > 1200) setTimeout(speakNow, 250);
+      else setTimeout(waitMic, 80);
+    })();
+  } else speakNow();
+}
+function speakParts(parts, code, v) {
   parts.forEach((part, i) => {
     const u = new SpeechSynthesisUtterance(part);
     u.lang = langOf(code).speech; if (v) u.voice = v; u.rate = 1.03;
@@ -441,7 +462,7 @@ function finishNarration() {
   clearTimeout(narrateWatch);
   if (!narrating) return;
   narrating = false; setSayState(null, false);
-  if (listening) { setTimeout(startRec, 200); $('status').textContent = 'מקשיב… דבר ב' + langOf(inputLang).label + '.'; }
+  if (listening) { setTimeout(startRec, IS_IOS ? 600 : 200); $('status').textContent = 'מקשיב… דבר ב' + langOf(inputLang).label + '.'; }
 }
 document.addEventListener('click', e => {
   const b = e.target.closest('.say'); if (!b) return;
@@ -543,15 +564,18 @@ async function start() {
   };
   rec.onerror = ev => {
     if (ev.error === 'no-speech' || ev.error === 'aborted') return;   // harmless on Safari
+    if (heardOnce && (ev.error === 'not-allowed' || ev.error === 'service-not-allowed' || ev.error === 'audio-capture')) {
+      askTap(); return;   // Safari wants a tap before it reopens the microphone
+    }
     $('status').textContent = 'שגיאה: ' + ev.error;
   };
   // Safari on iPad stops after every sentence — restart with a short delay (immediate restart throws).
-  rec.onstart = () => { recRunning = true; recStarting = false; };
+  rec.onstart = () => { recRunning = true; recStarting = false; heardOnce = true; failedStarts = 0; };
   rec.onend = () => { recRunning = false; recStarting = false; if (listening && !narrating) setTimeout(startRec, IS_IOS ? 150 : 0); };
   // Safety net: if the browser ever drops the microphone without restarting, start it again.
   clearInterval(recGuard);
   recGuard = setInterval(() => {
-    if (listening && !narrating && !recRunning && !recStarting) startRec();
+    if (listening && !narrating && !recRunning && !recStarting && !needTap) startRec();
     if (narrating && synth && !synth.speaking && !synth.pending && Date.now() - narrateStart > 600) finishNarration();
   }, 300);
   listening = true;
@@ -559,17 +583,37 @@ async function start() {
   $('toggle').textContent = 'עצור'; $('toggle').classList.add('listening');
   $('status').textContent = 'מקשיב… דבר ב' + langOf(inputLang).label + '.';
 }
-let recRunning = false, recStarting = false, recGuard = null;
+let recRunning = false, recStarting = false, recGuard = null, heardOnce = false, needTap = false, failedStarts = 0;
 function startRec() {
-  if (!rec || narrating || !listening || recRunning) return;
+  if (!rec || narrating || !listening || recRunning || needTap) return;
   rec.lang = langOf(inputLang).speech;   // picked up on every (re)start, so tapping a panel switches language
   recStarting = true;
   try { rec.start(); }
-  catch (e) { recStarting = false; setTimeout(startRec, 300); }   // still shutting down: try again shortly
-  setTimeout(() => { recStarting = false; }, 2000);
+  catch (e) { recStarting = false; setTimeout(startRec, 300); return; }   // still shutting down: try again shortly
+  setTimeout(() => {
+    if (recStarting && !recRunning) {        // never started
+      recStarting = false;
+      if (IS_IOS && heardOnce && ++failedStarts >= 2) askTap();
+    }
+  }, 2000);
 }
+// Safari on iPad sometimes refuses to reopen the microphone without a touch. Then one tap anywhere continues.
+function askTap() {
+  if (!listening || needTap) return;
+  needTap = true; recStarting = false;
+  $('tapResume').hidden = false;
+  $('status').textContent = 'גע במסך כדי להמשיך להקשיב.';
+}
+function resumeFromTap(e) {
+  if (!needTap) return;
+  e.preventDefault(); e.stopPropagation();
+  needTap = false; failedStarts = 0; $('tapResume').hidden = true;
+  $('status').textContent = 'מקשיב… דבר ב' + langOf(inputLang).label + '.';
+  if (rec) { rec.lang = langOf(inputLang).speech; recStarting = true; try { rec.start(); } catch (err) { recStarting = false; } }
+}
+document.addEventListener('pointerdown', resumeFromTap, true);
 function stop() {
-  clearInterval(recGuard);
+  clearInterval(recGuard); needTap = false; $('tapResume').hidden = true;
   listening = false; rec && rec.stop();
   if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
   if (wakeLock) { wakeLock.release(); wakeLock = null; }
