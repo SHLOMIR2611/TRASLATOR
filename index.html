@@ -120,6 +120,15 @@
   .history { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--ink-dim);
              font-size: 17px; line-height: 1.55; overflow-y: auto; max-height: 45vh; }
   .history p { margin: 0 0 12px; }
+  /* narration buttons */
+  .say { align-self: flex-start; margin-top: 10px; display: inline-flex; align-items: center; gap: 6px;
+         font-size: 15px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line);
+         background: var(--panel); color: var(--teal); cursor: pointer; font-weight: 600; }
+  .say:hover { border-color: var(--teal); }
+  .say.on { background: var(--teal); color: #fff; border-color: var(--teal); }
+  .say[hidden] { display: none; }
+  .history .say-sm { border: 0; background: none; cursor: pointer; font-size: 14px; padding: 0 6px; opacity: .7; }
+  .history .say-sm:hover { opacity: 1; }
   .ltr { direction: ltr; text-align: left; }
   .rtl { direction: rtl; text-align: right; }
   .empty { color: var(--ink-dim); padding: 40px; text-align: center; grid-column: 1 / -1; background: var(--panel); }
@@ -161,6 +170,7 @@
 <footer id="panel-he" title="לחץ כדי להקשיב בעברית">
   <h2>עברית <span class="mic">🎤 לחץ להאזנה בעברית</span></h2>
   <div class="current" id="cur-he"></div>
+  <button class="say" id="say-he" data-code="he" hidden>🔊 הקראה</button>
 </footer>
 
 <script>
@@ -196,6 +206,7 @@ function panel(code, title, dir) {
   return `<section class="${dir}" id="panel-${code}" data-code="${code}" title="לחץ כדי להקשיב בשפה זו">
     <h2>${title}<span class="mic">🎤</span></h2>
     <div class="current" id="cur-${code}"></div>
+    <button class="say" id="say-${code}" data-code="${code}" hidden>🔊 הקראה</button>
     <div class="history" id="hist-${code}"></div></section>`;
 }
 function buildPanels() {
@@ -373,14 +384,63 @@ setAside(localStorage.getItem('asideOpen') === '1');
 // ---- flow ----
 function pushHistory(code, text) {
   const h = $('hist-' + code); if (!h) return;
-  const p = document.createElement('p'); p.textContent = text; h.prepend(p);
+  const p = document.createElement('p'); p.textContent = text;
+  if (text) { const b = document.createElement('button'); b.className = 'say-sm'; b.title = 'הקראה'; b.textContent = '🔊';
+    b.onclick = e => { e.stopPropagation(); narrate(text, code); }; p.prepend(b); }
+  h.prepend(p);
 }
+
+// ---- narration (read a translation aloud) ----
+const synth = window.speechSynthesis || null;
+let voices = [], narrating = false, narrateWatch = null;
+function loadVoices() { try { voices = synth ? synth.getVoices() : []; } catch (e) { voices = []; } }
+if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
+function voiceScore(v) { const n = v.name || ''; let s = 0;
+  if (/natural|neural/i.test(n)) s += 10; if (/online/i.test(n)) s += 6; if (/premium|enhanced|siri/i.test(n)) s += 6;
+  if (/google/i.test(n)) s += 4; if (!v.localService) s += 2; if (/compact|espeak/i.test(n)) s -= 10; return s; }
+function voiceFor(code) {
+  const pre = code === 'he' ? ['he', 'iw'] : [code.toLowerCase().split('-')[0]];
+  return voices.filter(v => pre.some(p => (v.lang || '').toLowerCase().startsWith(p))).sort((a, b) => voiceScore(b) - voiceScore(a))[0] || null;
+}
+function setSayState(code, on) { document.querySelectorAll('.say').forEach(b => b.classList.toggle('on', on && b.dataset.code === code)); }
+function narrate(text, code) {
+  if (!synth) { $('status').textContent = 'הדפדפן הזה לא תומך בהקראה.'; return; }
+  if (!text) return;
+  if (narrating) { synth.cancel(); finishNarration(); return; }    // second tap stops
+  const v = voiceFor(code);
+  if (!v) $('status').textContent = 'אין במכשיר קול ל' + langOf(code).label + ' — ההקראה עשויה לא להישמע. נסו את Edge.';
+  // Pause listening so the microphone does not translate the narration.
+  narrating = true; setSayState(code, true);
+  if (listening && rec) { try { rec.abort(); } catch (e) {} }
+  const parts = (text.match(/[^.!?。！？؟\n]+[.!?。！？؟]*\s*/g) || [text]).map(t => t.trim()).filter(Boolean);
+  clearTimeout(narrateWatch); narrateWatch = setTimeout(finishNarration, 4000 + text.length * 120);
+  parts.forEach((part, i) => {
+    const u = new SpeechSynthesisUtterance(part);
+    u.lang = langOf(code).speech; if (v) u.voice = v; u.rate = 0.98;
+    if (i === parts.length - 1) u.onend = finishNarration;
+    u.onerror = finishNarration;
+    synth.speak(u);
+  });
+}
+function finishNarration() {
+  clearTimeout(narrateWatch);
+  if (!narrating) return;
+  narrating = false; setSayState(null, false);
+  if (listening) { setTimeout(startRec, 400); $('status').textContent = 'מקשיב… דבר ב' + langOf(inputLang).label + '.'; }
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('.say'); if (!b) return;
+  e.stopPropagation();
+  narrate(($('cur-' + b.dataset.code) || {}).textContent || '', b.dataset.code);
+}, true);
+function showSay(code) { const b = $('say-' + code); if (b) b.hidden = !(($('cur-' + code) || {}).textContent || '').trim(); }
 
 async function handleFinal(text) {
   text = text.trim(); if (!text) return;
   const from = inputLang, codes = targetsFor(from);
   clearTimeout(previewTimer); finalSeq = ++previewSeq;
   const src = $('cur-' + from); if (src) src.textContent = text;
+  const sb = $('say-' + from); if (sb) sb.hidden = true;
   if (from !== 'he') pushHistory(from, text);
   const entry = { time: new Date(), lang: from, he: from === 'he' ? text : '…', tr: { [from]: text } };
   try {
@@ -388,7 +448,7 @@ async function handleFinal(text) {
     Object.assign(entry.tr, t);
     if (from !== 'he') entry.he = t.he || '';
     addToTranscript(entry);
-    codes.forEach(c => { const el = $('cur-' + c); if (el) el.textContent = t[c] || ''; pushHistory(c, t[c] || ''); });
+    codes.forEach(c => { const el = $('cur-' + c); if (el) el.textContent = t[c] || ''; pushHistory(c, t[c] || ''); showSay(c); });
   } catch (e) {
     addToTranscript(entry);
     codes.forEach(c => { const el = $('cur-' + c); if (el) el.textContent = 'שגיאת תרגום: ' + e.message; });
@@ -418,6 +478,7 @@ async function start() {
   rec = new SR();
   rec.continuous = true; rec.interimResults = true;
   rec.onresult = ev => {
+    if (narrating) return;
     let interim = '';
     for (let i = ev.resultIndex; i < ev.results.length; i++) {
       const r = ev.results[i];
@@ -434,7 +495,7 @@ async function start() {
     $('status').textContent = 'שגיאה: ' + ev.error;
   };
   // Safari on iPad stops after every sentence — restart with a short delay (immediate restart throws).
-  rec.onend = () => { if (listening) setTimeout(startRec, IS_IOS ? 150 : 0); };
+  rec.onend = () => { if (listening && !narrating) setTimeout(startRec, IS_IOS ? 150 : 0); };
   listening = true;
   startRec();
   $('toggle').textContent = 'עצור'; $('toggle').classList.add('listening');
@@ -456,6 +517,7 @@ $('toggle').onclick = () => listening ? stop() : start();
 $('clear').onclick = () => {
   if (transcript.length && !confirm('לנקות את המסך ואת התמלול המלא? (מומלץ לייצא ל‑Word קודם)')) return;
   document.querySelectorAll('.current, .history').forEach(el => el.textContent = '');
+  document.querySelectorAll('.say').forEach(b => b.hidden = true);
   clearTranscript();
 };
 
