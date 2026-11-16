@@ -256,7 +256,16 @@ async function translateMyMemory(text, to, from) {
   return data.responseData.translatedText;
 }
 
-async function translateFree(text, to, from) {
+const trCache = new Map();
+function translateFree(text, to, from) {
+  const key = from + '|' + to + '|' + text.trim().toLowerCase();
+  if (trCache.has(key)) return trCache.get(key);
+  const p = translateFreeRaw(text, to, from);
+  trCache.set(key, p); p.catch(() => trCache.delete(key));
+  if (trCache.size > 200) trCache.delete(trCache.keys().next().value);
+  return p;
+}
+async function translateFreeRaw(text, to, from) {
   try { return await translateGoogle(text, to, from); }
   catch (e1) {
     console.warn('Google failed, trying backup:', e1.message);
@@ -312,7 +321,7 @@ function previewTranslate(text) {
       if (seq !== previewSeq || finalSeq > 0 && seq < finalSeq) return;   // stale
       codes.forEach(c => { const el = $('cur-' + c); if (el) el.innerHTML = `<span class="interim">${out[c]}</span>`; });
     } catch (e) {}
-  }, 250);
+  }, 120);
 }
 
 // ---- transcript (full Hebrew log + translations) ----
@@ -420,7 +429,7 @@ function narrate(text, code) {
   clearTimeout(narrateWatch); narrateWatch = setTimeout(finishNarration, 4000 + text.length * 120);
   parts.forEach((part, i) => {
     const u = new SpeechSynthesisUtterance(part);
-    u.lang = langOf(code).speech; if (v) u.voice = v; u.rate = 0.98;
+    u.lang = langOf(code).speech; if (v) u.voice = v; u.rate = 1.03;
     if (i === parts.length - 1) u.onend = finishNarration;
     u.onerror = finishNarration;
     synth.speak(u);
@@ -430,7 +439,7 @@ function finishNarration() {
   clearTimeout(narrateWatch);
   if (!narrating) return;
   narrating = false; setSayState(null, false);
-  if (listening) { setTimeout(startRec, 400); $('status').textContent = 'מקשיב… דבר ב' + langOf(inputLang).label + '.'; }
+  if (listening) { setTimeout(startRec, 200); $('status').textContent = 'מקשיב… דבר ב' + langOf(inputLang).label + '.'; }
 }
 document.addEventListener('click', e => {
   const b = e.target.closest('.say'); if (!b) return;
@@ -480,6 +489,9 @@ async function handleFinal(text) {
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const EARLY_MS = 650;
+let stableTimer = null, committed = '';
+const sameText = (a, b) => !!b && a.replace(/[\s.,!?،。]/g, '').toLowerCase() === b.replace(/[\s.,!?،。]/g, '').toLowerCase();
 let rec = null, listening = false, micStream = null, wakeLock = null;
 
 async function keepAwake() {
@@ -496,6 +508,7 @@ async function start() {
     catch (e) { $('status').textContent = 'אין גישה למיקרופון: ' + e.message; return; }
   }
   keepAwake();
+  if (synth) { try { loadVoices(); const w = new SpeechSynthesisUtterance(' '); w.volume = 0; synth.speak(w); } catch (e) {} }
   rec = new SR();
   rec.continuous = true; rec.interimResults = true;
   rec.onresult = ev => {
@@ -503,7 +516,22 @@ async function start() {
     let interim = '';
     for (let i = ev.resultIndex; i < ev.results.length; i++) {
       const r = ev.results[i];
-      if (r.isFinal) handleFinal(r[0].transcript); else interim += r[0].transcript;
+      if (r.isFinal) {
+        clearTimeout(stableTimer);
+        if (sameText(r[0].transcript, committed)) { committed = ''; continue; }   // already translated early
+        handleFinal(r[0].transcript);
+      } else interim += r[0].transcript;
+    }
+    // The browser waits about a second before it marks a sentence as final.
+    // If the words stop changing for a moment, translate (and read aloud) right away.
+    clearTimeout(stableTimer);
+    if (interim) {
+      const snap = interim;
+      stableTimer = setTimeout(() => {
+        committed = snap;
+        try { rec.abort(); } catch (e) {}      // drop the pending final; listening restarts by itself
+        handleFinal(snap);
+      }, EARLY_MS);
     }
     if (interim) {
       const src = $('cur-' + inputLang);
