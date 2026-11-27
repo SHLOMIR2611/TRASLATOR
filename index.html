@@ -178,7 +178,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const APP_VERSION = 106;   // raise by 1 on every update
+const APP_VERSION = 107;   // raise by 1 on every update
 $('ver').textContent = 'גרסה ' + APP_VERSION;
 const LANGS = [
   { code: 'en', name: 'English', label: 'אנגלית', dir: 'ltr', speech: 'en-US', google: 'en', full: 'English' },
@@ -233,7 +233,18 @@ function setInputLang(code) {
   markSpeaking();
   const l = langOf(code);
   $('status').textContent = listening ? 'מקשיב… דבר ב' + l.label + '.' : 'שפת הדיבור: ' + l.label + '. לחץ "התחל להקשיב".';
-  if (listening && rec) { try { rec.abort(); } catch (e) {} }   // onend restarts with the new language
+  if (listening && rec) {
+    // Safari on iPad often never sends "end" after abort(), so the old recognizer looked busy forever and
+    // the page froze. Silence the old one, drop it, and start a fresh recognizer in the new language.
+    const old = rec;
+    old.onresult = old.onerror = old.onend = old.onstart = null;
+    try { old.abort(); } catch (e) {}
+    clearTimeout(stableTimer); clearTimeout(previewTimer); committed = '';
+    rec = makeRec();
+    recRunning = false; recStarting = false; failedStarts = 0;
+    if (needTap) { needTap = false; $('tapResume').hidden = true; }
+    setTimeout(startRec, IS_IOS ? 300 : 0);
+  }
 }
 buildPanels();
 $('panel-he').onclick = () => setInputLang('he');
@@ -458,7 +469,11 @@ async function start() {
     catch (e) { $('status').textContent = 'אין גישה למיקרופון: ' + e.message; return; }
   }
   keepAwake();
-  rec = new SR();
+  rec = makeRec();
+  goListening();
+}
+function makeRec() {
+  const rec = new SR();
   rec.continuous = true; rec.interimResults = true;
   rec.onresult = ev => {
     let interim = '';
@@ -510,6 +525,9 @@ async function start() {
   // Safari on iPad stops after every sentence — restart with a short delay (immediate restart throws).
   rec.onstart = () => { recRunning = true; recStarting = false; heardOnce = true; failedStarts = 0; };
   rec.onend = () => { recRunning = false; recStarting = false; if (listening) setTimeout(startRec, IS_IOS ? 150 : 0); };
+  return rec;
+}
+function goListening() {
   // Safety net: if the browser ever drops the microphone without restarting, start it again.
   clearInterval(recGuard);
   recGuard = setInterval(() => {
