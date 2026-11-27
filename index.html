@@ -178,7 +178,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const APP_VERSION = 107;   // raise by 1 on every update
+const APP_VERSION = 108;   // raise by 1 on every update
 $('ver').textContent = 'גרסה ' + APP_VERSION;
 const LANGS = [
   { code: 'en', name: 'English', label: 'אנגלית', dir: 'ltr', speech: 'en-US', google: 'en', full: 'English' },
@@ -236,14 +236,10 @@ function setInputLang(code) {
   if (listening && rec) {
     // Safari on iPad often never sends "end" after abort(), so the old recognizer looked busy forever and
     // the page froze. Silence the old one, drop it, and start a fresh recognizer in the new language.
-    const old = rec;
-    old.onresult = old.onerror = old.onend = old.onstart = null;
-    try { old.abort(); } catch (e) {}
+    // Start the new language right here, inside the tap: Safari allows opening the microphone during a touch.
     clearTimeout(stableTimer); clearTimeout(previewTimer); committed = '';
-    rec = makeRec();
-    recRunning = false; recStarting = false; failedStarts = 0;
     if (needTap) { needTap = false; $('tapResume').hidden = true; }
-    setTimeout(startRec, IS_IOS ? 300 : 0);
+    restartFresh();
   }
 }
 buildPanels();
@@ -539,12 +535,32 @@ function goListening() {
   $('status').textContent = 'מקשיב… דבר ב' + langOf(inputLang).label + '.';
 }
 let recRunning = false, recStarting = false, recGuard = null, heardOnce = false, needTap = false, failedStarts = 0;
+// Drop the current recognizer (Safari may never report that it ended) and start a new one at once.
+// If the microphone has not opened after 1.5 seconds, ask for one tap instead of waiting forever.
+let freshWatch = null;
+function restartFresh(retry) {
+  if (rec) { rec.onresult = rec.onerror = rec.onend = rec.onstart = null; try { rec.abort(); } catch (e) {} }
+  rec = makeRec();
+  recRunning = false; recStarting = true; failedStarts = 0;
+  rec.lang = langOf(inputLang).speech;
+  try { rec.start(); } catch (e) { recStarting = false; }
+  clearTimeout(freshWatch);
+  freshWatch = setTimeout(() => {
+    if (!listening || recRunning) return;
+    if (!retry) restartFresh(true);           // the old microphone was still closing: one more try
+    else { recStarting = false; askTap(); }   // still closed: one tap opens it
+  }, retry ? 1200 : 700);
+}
 function startRec() {
   if (!rec || !listening || recRunning || needTap) return;
   rec.lang = langOf(inputLang).speech;   // picked up on every (re)start, so tapping a panel switches language
   recStarting = true;
   try { rec.start(); }
-  catch (e) { recStarting = false; setTimeout(startRec, 300); return; }   // still shutting down: try again shortly
+  catch (e) {                              // still shutting down: try again shortly, but not forever
+    recStarting = false;
+    if (IS_IOS && heardOnce && ++failedStarts >= 4) { askTap(); return; }
+    setTimeout(startRec, 300); return;
+  }
   setTimeout(() => {
     if (recStarting && !recRunning) {        // never started
       recStarting = false;
@@ -564,11 +580,11 @@ function resumeFromTap(e) {
   e.preventDefault(); e.stopPropagation();
   needTap = false; failedStarts = 0; $('tapResume').hidden = true;
   $('status').textContent = 'מקשיב… דבר ב' + langOf(inputLang).label + '.';
-  if (rec) { rec.lang = langOf(inputLang).speech; recStarting = true; try { rec.start(); } catch (err) { recStarting = false; } }
+  restartFresh();   // a new recognizer, started inside this touch
 }
 document.addEventListener('pointerdown', resumeFromTap, true);
 function stop() {
-  clearInterval(recGuard); needTap = false; $('tapResume').hidden = true;
+  clearInterval(recGuard); clearTimeout(freshWatch); needTap = false; $('tapResume').hidden = true;
   listening = false; rec && rec.stop();
   if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
   if (wakeLock) { wakeLock.release(); wakeLock = null; }
