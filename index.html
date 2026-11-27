@@ -178,7 +178,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const APP_VERSION = 105;   // raise by 1 on every update
+const APP_VERSION = 106;   // raise by 1 on every update
 $('ver').textContent = 'גרסה ' + APP_VERSION;
 const LANGS = [
   { code: 'en', name: 'English', label: 'אנגלית', dir: 'ltr', speech: 'en-US', google: 'en', full: 'English' },
@@ -444,6 +444,11 @@ async function keepAwake() {
 }
 document.addEventListener('visibilitychange', () => { if (listening && document.visibilityState === 'visible') keepAwake(); });
 if (!SR) { $('warn').style.display = 'block'; $('toggle').disabled = true; }
+// On iPad/iPhone only Safari itself may use speech recognition. Chrome, the Google app, Edge, Firefox
+// and browsers inside other apps (WhatsApp, Gmail…) get "service-not-allowed".
+const IOS_OTHER_BROWSER = IS_IOS && /CriOS|GSA\/|FxiOS|EdgiOS|OPiOS|FBAN|FBAV|Instagram|WhatsApp|Line\//.test(navigator.userAgent);
+const SAFARI_HELP = 'באייפד זיהוי הדיבור עובד רק בדפדפן Safari. פתח את הכתובת ב‑Safari, וודא ש‑Siri והכתבה מופעלים (הגדרות ← Siri, והגדרות ← כללי ← מקלדת ← הפעל הכתבה).';
+if (IOS_OTHER_BROWSER) { $('warn').textContent = SAFARI_HELP; $('warn').style.display = 'block'; }
 
 async function start() {
   // On desktop, keep the microphone open for the whole session so the browser asks once.
@@ -490,6 +495,15 @@ async function start() {
     if (ev.error === 'no-speech' || ev.error === 'aborted') return;   // harmless on Safari
     if (heardOnce && (ev.error === 'not-allowed' || ev.error === 'service-not-allowed' || ev.error === 'audio-capture')) {
       askTap(); return;   // Safari wants a tap before it reopens the microphone
+    }
+    if (ev.error === 'service-not-allowed' || ev.error === 'not-allowed') {
+      stop();
+      $('warn').textContent = ev.error === 'not-allowed'
+        ? 'אין הרשאה למיקרופון. ב‑Safari: הגדרות ← אפליקציות ← Safari ← מיקרופון ← אפשר, ואז רענן את הדף.'
+        : SAFARI_HELP;
+      $('warn').style.display = 'block';
+      $('status').textContent = 'זיהוי הדיבור חסום. ההוראות למעלה.';
+      return;
     }
     $('status').textContent = 'שגיאה: ' + ev.error;
   };
